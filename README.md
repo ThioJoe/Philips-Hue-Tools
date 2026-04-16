@@ -6,6 +6,10 @@
 
 ### `Force-Check-Bridge-Updates.ps1:`
 - PowerShell script to force your bridge to check for new updates, then lets you initiate the install if an update is found.
+- You can run it by opening Windows PowerShell to the folder containing the script and running this command:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force; .\Force-Check-Bridge-Updates.ps1
+  ```
 
 
 ## How to Get an API Key
