@@ -132,6 +132,9 @@
                 <span id="renameWarningDebug" class="hidden">The old bulb will KEEP its name. The new bulb will be renamed to "[Original Name] (new)".</span>
                 Both V1 and V2 API names will be updated. Startup behavior will also be copied (V1 only).
             </div>
+            <div id="roomWarning" class="mb-4 p-3 bg-orange-50 border border-orange-300 rounded-md text-sm text-orange-800 hidden">
+                <strong>&#9888; Room Mismatch:</strong> The old bulb is in room "<span id="roomWarningOldRoom"></span>" but the new bulb is in room "<span id="roomWarningNewRoom"></span>". The new bulb will be moved to the old bulb's room during replacement.
+            </div>
             <button id="startReplacementBtn" disabled class="w-full md:w-auto px-4 py-2 bg-green-600 text-white font-semibold rounded-md shadow hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed">
                 Confirm and Start Replacement
             </button>
@@ -175,6 +178,9 @@
         const altRenameCheck = document.getElementById('debugRenameCheck'); // Debug checkbox
         const renameWarningDefault = document.getElementById('renameWarningDefault');
         const renameWarningAlt = document.getElementById('renameWarningDebug');
+        const roomWarningDiv = document.getElementById('roomWarning');
+        const roomWarningOldRoomSpan = document.getElementById('roomWarningOldRoom');
+        const roomWarningNewRoomSpan = document.getElementById('roomWarningNewRoom');
 
 
         // --- State Variables ---
@@ -191,6 +197,12 @@
         let selectedOldLightV1Id = null;
         /** @type {string | null} */
         let selectedNewLightV1Id = null;
+        /** @type {Record<string, string> | null} */
+        let v2LightToDeviceMap = null; // Map V2 light GUID to device GUID
+        /** @type {Array<any> | null} */
+        let allRoomsV2 = null; // All V2 room objects (for room membership updates)
+        /** @type {Record<string, {id: string, name: string}> | null} */
+        let v2LightToRoomMap = null; // Map V2 light GUID to room {id, name}
 
         // --- Utility Functions ---
 
@@ -340,6 +352,7 @@
                 if (selectedOldLightV1Id === selectedNewLightV1Id) {
                     step2Error.textContent = 'Old and New bulb cannot be the same.';
                     confirmationDiv.classList.add('hidden');
+                    roomWarningDiv.classList.add('hidden');
                     startReplacementBtn.disabled = true;
                 } else {
                     // Update confirmation text
@@ -355,9 +368,27 @@
 
                     confirmationDiv.classList.remove('hidden');
                     startReplacementBtn.disabled = false;
+
+                    // Check if bulbs are in the same room
+                    if (v2LightToRoomMap && v1ToV2IdMap) {
+                        const oldV2Id = v1ToV2IdMap[selectedOldLightV1Id];
+                        const newV2Id = v1ToV2IdMap[selectedNewLightV1Id];
+                        const oldRoom = oldV2Id ? v2LightToRoomMap[oldV2Id] : null;
+                        const newRoom = newV2Id ? v2LightToRoomMap[newV2Id] : null;
+                        if (oldRoom && newRoom && oldRoom.id !== newRoom.id) {
+                            roomWarningOldRoomSpan.textContent = oldRoom.name;
+                            roomWarningNewRoomSpan.textContent = newRoom.name;
+                            roomWarningDiv.classList.remove('hidden');
+                        } else {
+                            roomWarningDiv.classList.add('hidden');
+                        }
+                    } else {
+                        roomWarningDiv.classList.add('hidden');
+                    }
                 }
             } else {
                 confirmationDiv.classList.add('hidden');
+                roomWarningDiv.classList.add('hidden');
                 startReplacementBtn.disabled = true;
             }
         }
@@ -413,6 +444,9 @@
             step1Error.textContent = '';
             allV1Lights = null; // Reset state
             v1ToV2IdMap = null; // Reset state
+            v2LightToDeviceMap = null; // Reset state
+            allRoomsV2 = null; // Reset state
+            v2LightToRoomMap = null; // Reset state
 
             if (!bridgeIp || !apiUser) {
                 step1Error.textContent = 'Please enter both Bridge IP and API Username.';
@@ -466,6 +500,46 @@
                  if (unmappedCount > 0) {
                      log(`${unmappedCount} V1 lights could not be mapped to a V2 ID (this might be normal for older scenes/setups).`, 'warning');
                  }
+
+                // --- Build V2 Light to Device Map ---
+                v2LightToDeviceMap = {};
+                v2Data.data.forEach(light => {
+                    if (light.id && light.owner?.rid && light.owner?.rtype === 'device') {
+                        v2LightToDeviceMap[light.id] = light.owner.rid;
+                    }
+                });
+                log(`Built V2 light-to-device map for ${Object.keys(v2LightToDeviceMap).length} lights.`, 'info');
+
+                // --- Fetch V2 Rooms ---
+                log(`Fetching V2 rooms...`, 'info');
+                v2LightToRoomMap = {};
+                allRoomsV2 = null;
+                try {
+                    const roomsResponse = await apiRequest(`${apiV2BaseUrl}resource/room`, 'GET', null, apiUser, true);
+                    if (roomsResponse && Array.isArray(roomsResponse.data)) {
+                        allRoomsV2 = roomsResponse.data;
+                        const deviceToRoomMap = {};
+                        allRoomsV2.forEach(room => {
+                            if (room.type === 'room' && Array.isArray(room.children)) {
+                                room.children.forEach(child => {
+                                    if (child.rtype === 'device') {
+                                        deviceToRoomMap[child.rid] = { id: room.id, name: room.metadata?.name || 'Unknown Room' };
+                                    }
+                                });
+                            }
+                        });
+                        for (const [lightId, deviceId] of Object.entries(v2LightToDeviceMap)) {
+                            if (deviceToRoomMap[deviceId]) {
+                                v2LightToRoomMap[lightId] = deviceToRoomMap[deviceId];
+                            }
+                        }
+                        log(`Built room map for ${Object.keys(v2LightToRoomMap).length} V2 lights across ${allRoomsV2.length} rooms.`, 'info');
+                    }
+                } catch (roomError) {
+                    log(`Warning: Could not fetch V2 rooms: ${roomError.message}. Room mismatch detection unavailable.`, 'warning');
+                    allRoomsV2 = null;
+                    v2LightToRoomMap = null;
+                }
 
                 // --- Populate Dropdowns (using V1 data) ---
                 oldLightSelect.innerHTML = '<option value="">-- Select Old Bulb --</option>';
@@ -896,6 +970,58 @@
                  }
                  log(` -> Finished checking behavior instances. Updated ${updatedInstanceCount}.`, 'info');
 
+                 // --- Step: Update V2 Room Membership ---
+                 log('Step: Checking V2 room membership for new bulb...', 'info');
+                 if (allRoomsV2 && v2LightToRoomMap && v2LightToDeviceMap && oldLightV2Id && newLightV2Id) {
+                     const oldBulbRoom = v2LightToRoomMap[oldLightV2Id];
+                     const newBulbRoom = v2LightToRoomMap[newLightV2Id];
+                     const newBulbDeviceId = v2LightToDeviceMap[newLightV2Id];
+                     if (oldBulbRoom && newBulbRoom && newBulbDeviceId && oldBulbRoom.id !== newBulbRoom.id) {
+                         log(` -> New bulb is in room '${newBulbRoom.name}', old bulb is in room '${oldBulbRoom.name}'. Moving new bulb to old bulb's room...`, 'info');
+
+                         // Remove new bulb's device from its current room
+                         const currentRoomObj = allRoomsV2.find(r => r.id === newBulbRoom.id);
+                         if (currentRoomObj) {
+                             try {
+                                 const updatedChildren = (currentRoomObj.children || []).filter(
+                                     c => !(c.rtype === 'device' && c.rid === newBulbDeviceId)
+                                 );
+                                 await apiRequest(`${apiV2BaseUrl}resource/room/${currentRoomObj.id}`, 'PUT', { children: updatedChildren }, apiUser);
+                                 log(`    -> Removed new bulb's device from room '${newBulbRoom.name}'.`, 'success');
+                             } catch (removeErr) {
+                                 log(`    -> FAILED to remove new bulb's device from room '${newBulbRoom.name}': ${removeErr.message}`, 'error');
+                             }
+                             await sleep(300);
+                         }
+
+                         // Add new bulb's device to the old bulb's room
+                         const targetRoomObj = allRoomsV2.find(r => r.id === oldBulbRoom.id);
+                         if (targetRoomObj) {
+                             try {
+                                 const alreadyInRoom = (targetRoomObj.children || []).some(
+                                     c => c.rtype === 'device' && c.rid === newBulbDeviceId
+                                 );
+                                 if (!alreadyInRoom) {
+                                     const updatedChildren = [...(targetRoomObj.children || []), { rid: newBulbDeviceId, rtype: 'device' }];
+                                     await apiRequest(`${apiV2BaseUrl}resource/room/${targetRoomObj.id}`, 'PUT', { children: updatedChildren }, apiUser);
+                                     log(`    -> Added new bulb's device to room '${oldBulbRoom.name}'.`, 'success');
+                                 } else {
+                                     log(`    -> New bulb's device already in room '${oldBulbRoom.name}'.`, 'info');
+                                 }
+                             } catch (addErr) {
+                                 log(`    -> FAILED to add new bulb's device to room '${oldBulbRoom.name}': ${addErr.message}`, 'error');
+                             }
+                         }
+                     } else if (!oldBulbRoom || !newBulbRoom) {
+                         log(' -> Could not determine room for one or both bulbs. Skipping room membership update.', 'warning');
+                     } else {
+                         log(` -> Both bulbs are already in the same room ('${oldBulbRoom?.name}'). No room change needed.`, 'info');
+                     }
+                 } else {
+                     log(' -> Room data not available. Skipping room membership update.', 'info');
+                 }
+                 await sleep(250);
+
                  // --- Step 4: Rename OLD bulb (V1 & V2) ---
                  log('Step 4/6: Renaming OLD bulb...', 'info');
                  if (oldBulbTargetName !== originalOldLightName) { // Only rename if target name is different
@@ -970,6 +1096,7 @@
                  log(` - Attempted to apply startup config from Old bulb to New bulb (V1 only).`, 'info');
                  log(` - New bulb added to V1 groups: [${groupsWithOldLight.join(', ')}]`, 'info');
                  log(` - Attempted V1 scene state copy/light list update for scenes involving the old bulb.`, 'info');
+                 log(` - Attempted V2 room membership update: moved new bulb to old bulb's room if they differed.`, 'info');
                  log('Please verify in the Hue app and other apps (especially V2 API based ones):', 'warning');
                  log(' - Check the final names of the bulbs.', 'warning');
                  log(' - Check automations/timers involving the old bulb now correctly include/target the new bulb.', 'warning');
