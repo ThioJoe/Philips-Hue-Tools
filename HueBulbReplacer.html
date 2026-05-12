@@ -976,55 +976,89 @@
                  }
                  log(` -> Finished checking behavior instances. Updated ${updatedInstanceCount}.`, 'info');
 
-                 // --- Step: Update V2 Room Membership ---
-                 log('Step: Checking V2 room membership for new bulb...', 'info');
+                 // --- Step: Update V2 Room Membership & Geometry ---
+                 log('Step: Checking V2 room membership and geometry for new bulb...', 'info');
                  if (allRoomsV2 && v2LightToRoomMap && v2LightToDeviceMap && oldLightV2Id && newLightV2Id) {
                      const oldBulbRoom = v2LightToRoomMap[oldLightV2Id];
                      const newBulbRoom = v2LightToRoomMap[newLightV2Id];
+                     const oldBulbDeviceId = v2LightToDeviceMap[oldLightV2Id];
                      const newBulbDeviceId = v2LightToDeviceMap[newLightV2Id];
-                     if (oldBulbRoom && newBulbRoom && newBulbDeviceId && oldBulbRoom.id !== newBulbRoom.id) {
-                         log(` -> New bulb is in room '${newBulbRoom.name}', old bulb is in room '${oldBulbRoom.name}'. Moving new bulb to old bulb's room...`, 'info');
 
-                         // Remove new bulb's device from its current room
-                         const currentRoomObj = allRoomsV2.find(r => r.id === newBulbRoom.id);
-                         if (currentRoomObj) {
-                             try {
-                                 const updatedChildren = (currentRoomObj.children || []).filter(
-                                     c => !(c.rtype === 'device' && c.rid === newBulbDeviceId)
-                                 );
-                                 await apiRequest(`${apiV2BaseUrl}resource/room/${currentRoomObj.id}`, 'PUT', { children: updatedChildren }, apiUser);
-                                 log(`    -> Removed new bulb's device from room '${newBulbRoom.name}'.`, 'success');
-                             } catch (removeErr) {
-                                 log(`    -> FAILED to remove new bulb's device from room '${newBulbRoom.name}': ${removeErr.message}`, 'error');
+                     if (!oldBulbRoom) {
+                         log(' -> Could not determine room for old bulb. Skipping room/geometry update.', 'warning');
+                     } else if (!newBulbDeviceId) {
+                         log(' -> Could not determine device ID for new bulb. Skipping room/geometry update.', 'warning');
+                     } else {
+                         // Step A: Remove new bulb from its current room if it differs from the old bulb's room
+                         if (newBulbRoom && newBulbRoom.id !== oldBulbRoom.id) {
+                             log(` -> New bulb is in room '${newBulbRoom.name}', old bulb is in room '${oldBulbRoom.name}'. Moving new bulb...`, 'info');
+                             const currentRoomObj = allRoomsV2.find(r => r.id === newBulbRoom.id);
+                             if (currentRoomObj) {
+                                 try {
+                                     const updatedChildren = (currentRoomObj.children || []).filter(
+                                         c => !(c.rtype === 'device' && c.rid === newBulbDeviceId)
+                                     );
+                                     await apiRequest(`${apiV2BaseUrl}resource/room/${currentRoomObj.id}`, 'PUT', { children: updatedChildren }, apiUser);
+                                     log(`    -> Removed new bulb's device from room '${newBulbRoom.name}'.`, 'success');
+                                 } catch (removeErr) {
+                                     log(`    -> FAILED to remove new bulb's device from room '${newBulbRoom.name}': ${removeErr.message}`, 'error');
+                                 }
+                                 await sleep(300);
                              }
-                             await sleep(300);
+                         } else {
+                             log(` -> Both bulbs are in the same room ('${oldBulbRoom.name}').`, 'info');
                          }
 
-                         // Add new bulb's device to the old bulb's room
+                         // Step B: Update the target room (old bulb's room) — children + geometry in one PUT
                          const targetRoomObj = allRoomsV2.find(r => r.id === oldBulbRoom.id);
                          if (targetRoomObj) {
-                             try {
-                                 const alreadyInRoom = (targetRoomObj.children || []).some(
-                                     c => c.rtype === 'device' && c.rid === newBulbDeviceId
-                                 );
-                                 if (!alreadyInRoom) {
-                                     const updatedChildren = [...(targetRoomObj.children || []), { rid: newBulbDeviceId, rtype: 'device' }];
-                                     await apiRequest(`${apiV2BaseUrl}resource/room/${targetRoomObj.id}`, 'PUT', { children: updatedChildren }, apiUser);
-                                     log(`    -> Added new bulb's device to room '${oldBulbRoom.name}'.`, 'success');
+                             const roomPutPayload = {};
+
+                             // Add new bulb's device to children if not already present
+                             const alreadyInChildren = (targetRoomObj.children || []).some(
+                                 c => c.rtype === 'device' && c.rid === newBulbDeviceId
+                             );
+                             if (!alreadyInChildren) {
+                                 roomPutPayload.children = [...(targetRoomObj.children || []), { rid: newBulbDeviceId, rtype: 'device' }];
+                                 log(`    -> Will add new bulb's device to children of room '${oldBulbRoom.name}'.`, 'info');
+                             }
+
+                             // Copy geometry entry: find old bulb's entry and clone it for new bulb
+                             const geometryObjects = targetRoomObj.geometry?.objects || [];
+                             const oldBulbGeoEntry = oldBulbDeviceId
+                                 ? geometryObjects.find(o => o.reference?.rid === oldBulbDeviceId)
+                                 : null;
+                             if (oldBulbGeoEntry) {
+                                 const alreadyHasNewGeo = geometryObjects.some(o => o.reference?.rid === newBulbDeviceId);
+                                 if (!alreadyHasNewGeo) {
+                                     const newBulbGeoEntry = JSON.parse(JSON.stringify(oldBulbGeoEntry));
+                                     newBulbGeoEntry.reference.rid = newBulbDeviceId;
+                                     roomPutPayload.geometry = {
+                                         ...(targetRoomObj.geometry || {}),
+                                         objects: [...geometryObjects, newBulbGeoEntry]
+                                     };
+                                     log(`    -> Will copy geometry position from old bulb to new bulb in room '${oldBulbRoom.name}'.`, 'info');
                                  } else {
-                                     log(`    -> New bulb's device already in room '${oldBulbRoom.name}'.`, 'info');
+                                     log(`    -> New bulb already has a geometry entry in room '${oldBulbRoom.name}'. Skipping geometry copy.`, 'info');
                                  }
-                             } catch (addErr) {
-                                 log(`    -> FAILED to add new bulb's device to room '${oldBulbRoom.name}': ${addErr.message}`, 'error');
+                             } else {
+                                 log(`    -> No geometry entry found for old bulb in room '${oldBulbRoom.name}'. Skipping geometry copy.`, 'info');
+                             }
+
+                             if (Object.keys(roomPutPayload).length > 0) {
+                                 try {
+                                     await apiRequest(`${apiV2BaseUrl}resource/room/${targetRoomObj.id}`, 'PUT', roomPutPayload, apiUser);
+                                     log(`    -> Successfully updated room '${oldBulbRoom.name}' (children/geometry).`, 'success');
+                                 } catch (roomUpdateErr) {
+                                     log(`    -> FAILED to update room '${oldBulbRoom.name}': ${roomUpdateErr.message}`, 'error');
+                                 }
+                             } else {
+                                 log(`    -> No changes needed for room '${oldBulbRoom.name}'.`, 'info');
                              }
                          }
-                     } else if (!oldBulbRoom || !newBulbRoom) {
-                         log(' -> Could not determine room for one or both bulbs. Skipping room membership update.', 'warning');
-                     } else {
-                         log(` -> Both bulbs are already in the same room ('${oldBulbRoom?.name}'). No room change needed.`, 'info');
                      }
                  } else {
-                     log(' -> Room data not available. Skipping room membership update.', 'info');
+                     log(' -> Room data not available. Skipping room membership/geometry update.', 'info');
                  }
                  await sleep(250);
 
@@ -1102,7 +1136,7 @@
                  log(` - Attempted to apply startup config from Old bulb to New bulb (V1 only).`, 'info');
                  log(` - New bulb added to V1 groups: [${groupsWithOldLight.join(', ')}]`, 'info');
                  log(` - Attempted V1 scene state copy/light list update for scenes involving the old bulb.`, 'info');
-                 log(` - Attempted V2 room membership update: moved new bulb to old bulb's room if they differed.`, 'info');
+                 log(` - Attempted V2 room membership update: moved new bulb to old bulb's room if they differed, and copied geometry position.`, 'info');
                  log('Please verify in the Hue app and other apps (especially V2 API based ones):', 'warning');
                  log(' - Check the final names of the bulbs.', 'warning');
                  log(' - Check automations/timers involving the old bulb now correctly include/target the new bulb.', 'warning');
