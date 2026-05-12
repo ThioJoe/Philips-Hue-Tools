@@ -121,16 +121,16 @@
             <div id="debugOptions" class="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-md">
                 <label for="debugRenameCheck" class="flex items-center text-sm font-medium text-purple-700">
                     <input type="checkbox" id="debugRenameCheck" class="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 mr-2">
-                    <strong>Alternate Rename Option:</strong>&nbsp;&nbsp;&nbsp;Keep OLD bulb name, rename NEW bulb to "[Original Name] (new)" instead.
+                    <strong>Alternate Rename Option:</strong>&nbsp;&nbsp;&nbsp;Keep OLD bulb name, rename NEW bulb to "<span id="altCheckboxOldName">[Original Name]</span> (new)" instead.
                     </label>
             </div>
             <div id="confirmation" class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800 hidden">
                 Replacing: <strong id="confirmOldName"></strong> (V1 ID: <span id="confirmOldId"></span>)<br>
                 With: <strong id="confirmNewName"></strong> (V1 ID: <span id="confirmNewId"></span>)<br>
                 <strong class="text-red-700">Warning:</strong> The new bulb's current name and settings (if any) will be overwritten.
-                <span id="renameWarningDefault">The old bulb will be renamed to "[Original Name] (old)".</span>
-                <span id="renameWarningDebug" class="hidden">The old bulb will KEEP its name. The new bulb will be renamed to "[Original Name] (new)".</span>
-                Both V1 and V2 API names will be updated. Startup behavior will also be copied (V1 only).
+                <span id="renameWarningDefault"><br>&emsp;The old bulb will be renamed to "<span id="renameDefaultOldName">[Original Name]</span> (old)".</span>
+                <span id="renameWarningDebug" class="hidden"><br>&emsp;The old bulb will KEEP its name. <br>&emsp;The new bulb will be renamed to "<span id="renameAltOldName">[Original Name]</span> (new)".</span>
+                <br>&emsp;Both V1 and V2 API names will be updated. Startup behavior will also be copied (V1 only).
             </div>
             <div id="roomWarning" class="mb-4 p-3 bg-orange-50 border border-orange-300 rounded-md text-sm text-orange-800 hidden">
                 <strong>&#9888; Room Mismatch:</strong> The old bulb is in room "<span id="roomWarningOldRoom"></span>" but the new bulb is in room "<span id="roomWarningNewRoom"></span>". The new bulb will be moved to the old bulb's room during replacement.
@@ -365,6 +365,12 @@
                     const useAlternateRename = altRenameCheck.checked;
                     renameWarningDefault.classList.toggle('hidden', useAlternateRename);
                     renameWarningAlt.classList.toggle('hidden', !useAlternateRename);
+
+                    // Update [Original Name] spans with the actual old bulb name
+                    const oldBulbName = allV1Lights[selectedOldLightV1Id]?.name || '[Original Name]';
+                    document.getElementById('altCheckboxOldName').textContent = oldBulbName;
+                    document.getElementById('renameDefaultOldName').textContent = oldBulbName;
+                    document.getElementById('renameAltOldName').textContent = oldBulbName;
 
                     confirmationDiv.classList.remove('hidden');
                     startReplacementBtn.disabled = false;
