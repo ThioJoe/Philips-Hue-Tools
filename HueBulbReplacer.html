@@ -50,21 +50,19 @@
 
         <h1 class="text-2xl font-bold mb-4 text-center text-indigo-600">Philips Hue Bulb Replacer</h1>
 
-        <div class="mb-6 p-4 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
-            <h2 class="font-semibold mb-2 text-red-800">Important Browser Requirement:</h2>
-            <p class="mb-2">
-                To allow this tool to communicate directly with your local Hue Bridge (which uses HTTPS with a self-signed certificate), your browser's standard security features must be temporarily bypassed.
-            </p>
-            <p class="mb-2">
-                You need to launch Google Chrome using a special command that disables these protections <strong>only for that browser session</strong>. Please close this special Chrome window immediately after you finish using this tool.
-            </p>
-            <p class="mb-1">
-                Open the Command Prompt (search for "cmd") or the Run dialog (press Windows Key + R) and execute the following command:
-            </p>
-            <pre class="bg-gray-100 p-2 rounded text-xs text-gray-800 overflow-x-auto"><code>"C:\Program Files\Google\Chrome\Application\chrome.exe" --disable-web-security --ignore-certificate-errors --guest --bwsi --user-data-dir=%LOCALAPPDATA%\Google\TemporaryChromeSession_YouCanDeleteThis</code></pre>
-            <p class="mt-2">
-                This command opens a new, separate Chrome guest window. <strong>Once that window is open, drag the <code>HueBulbReplacer.html</code> file directly onto it to load the tool.</strong> The temporary profile directory it creates can be safely deleted afterwards.
-            </p>
+        <div id="corsBanner" class="mb-6 p-4 rounded-md text-sm">
+            <h2 class="font-semibold mb-2">Browser / CORS Options — Choose One:</h2>
+            <div class="mb-3">
+                <p class="font-medium mb-1">Option A &mdash; Local CORS Proxy <span class="font-normal opacity-80">(recommended, works in any browser)</span></p>
+                <p class="mb-1">Run a local CORS &amp; certificate proxy (e.g. <a href="https://github.com/Rob--W/cors-anywhere" class="underline">cors-anywhere</a> or a simple HTTPS-terminating reverse proxy) and enter its URL in the <strong>CORS Proxy URL</strong> field in Step 1. The proxy rewrites requests so the browser never talks to the bridge directly, bypassing both CORS and self-signed certificate issues.</p>
+                <p class="text-xs opacity-75">Example proxy URL: <code>https://localhost:5001/?url=</code></p>
+            </div>
+            <div>
+                <p class="font-medium mb-1">Option B &mdash; Disable browser security <span class="font-normal opacity-80">(no extra software needed)</span></p>
+                <p class="mb-1">Launch Chrome with security disabled <strong>only for that session</strong> and leave the proxy field blank. Close the special window when done.</p>
+                <pre class="bg-gray-100 p-2 rounded text-xs text-gray-800 overflow-x-auto"><code>"C:\Program Files\Google\Chrome\Application\chrome.exe" --disable-web-security --ignore-certificate-errors --guest --bwsi --user-data-dir=%LOCALAPPDATA%\Google\TemporaryChromeSession_YouCanDeleteThis</code></pre>
+                <p class="mt-1">Drag <code>HueBulbReplacer.html</code> onto that window to load the tool. The temporary profile directory can be safely deleted afterwards.</p>
+            </div>
         </div>
         
         <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-700">
@@ -91,6 +89,11 @@
                     <label for="apiUser" class="block text-sm font-medium text-gray-700 mb-1">API Username (Key):</label>
                     <input type="text" id="apiUser" placeholder="Generated API Key" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
                 </div>
+            </div>
+            <div class="mb-4">
+                <label for="corsProxy" class="block text-sm font-medium text-gray-700 mb-1">CORS Proxy URL <span class="font-normal text-gray-500">(optional &mdash; Option A above)</span>:</label>
+                <input type="text" id="corsProxy" placeholder="e.g., https://localhost:5001/?url=" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                <p class="text-xs text-gray-500 mt-1">When set, all bridge requests are routed through this proxy. Leave blank when using Option B (disabled browser security).</p>
             </div>
             <button id="fetchLightsBtn" class="w-full md:w-auto px-4 py-2 bg-indigo-600 text-white font-semibold rounded-md shadow hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                 Fetch Lights
@@ -147,10 +150,12 @@
         // --- Configuration ---
         const SESSION_STORAGE_IP_KEY = 'hueReplacerBridgeIp';
         const SESSION_STORAGE_API_KEY = 'hueReplacerApiUser';
+        const SESSION_STORAGE_PROXY_KEY = 'hueReplacerCorsProxy';
 
         // --- DOM Elements ---
         const bridgeIpInput = document.getElementById('bridgeIp');
         const apiUserInput = document.getElementById('apiUser');
+        const corsProxyInput = document.getElementById('corsProxy');
         const fetchLightsBtn = document.getElementById('fetchLightsBtn');
         const oldLightSelect = document.getElementById('oldLightSelect');
         const newLightSelect = document.getElementById('newLightSelect');
@@ -175,6 +180,7 @@
         // --- State Variables ---
         let bridgeIp = '';
         let apiUser = '';
+        let corsProxyUrl = ''; // Optional CORS proxy prefix, e.g. 'https://localhost:5001/?url='
         let apiV1BaseUrl = '';
         let apiV2BaseUrl = '';
         /** @type {Record<string, any> | null} */ // Using 'any' as V1 light object structure is complex
@@ -193,6 +199,21 @@
          * @param {string} message - The message to log.
          * @param {'info' | 'success' | 'warning' | 'error'} type - The type of message.
          */
+        function updateCorsBanner() {
+            const banner = document.getElementById('corsBanner');
+            if (!banner) return;
+            const hasProxy = !!corsProxyUrl;
+            // Red classes (no proxy)
+            banner.classList.toggle('bg-red-50', !hasProxy);
+            banner.classList.toggle('border', !hasProxy);
+            banner.classList.toggle('border-red-200', !hasProxy);
+            banner.classList.toggle('text-red-800', !hasProxy);
+            // Blue classes (proxy set)
+            banner.classList.toggle('bg-blue-50', hasProxy);
+            banner.classList.toggle('border-blue-200', hasProxy);
+            banner.classList.toggle('text-blue-800', hasProxy);
+        }
+
         function log(message, type = 'info') {
             const entry = document.createElement('div');
             entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -238,7 +259,10 @@
                     log(`Corrected URL to use HTTPS: ${url}`, 'warning');
                 }
 
-                const response = await fetch(url, options);
+                // Route through CORS proxy when configured
+                const fetchUrl = corsProxyUrl ? corsProxyUrl + url : url;
+
+                const response = await fetch(fetchUrl, options);
 
                 // Specific V2 error handling
                 if (response.status === 403 && url.includes('/clip/v2/')) {
@@ -290,9 +314,10 @@
                 console.error(`API Request Failed: ${method} ${url}`, error);
                 // Check for network errors (e.g., connection refused, DNS error, CORS, certificate issue)
                 if (error instanceof TypeError && error.message.includes('fetch')) {
-                     // Check if it's likely a certificate error specifically for HTTPS
-                     if(url.startsWith('https://')) {
-                        throw new Error(`Network/Certificate Error: Could not connect securely to bridge at ${url}. Did you launch Chrome using the command in the instructions?`);
+                     if (corsProxyUrl) {
+                        throw new Error(`Network Error: Could not reach CORS proxy at ${corsProxyUrl}. Ensure the proxy is running and the URL is correct.`);
+                     } else if (url.startsWith('https://')) {
+                        throw new Error(`Network/Certificate Error: Could not connect securely to bridge at ${url}. Configure a CORS proxy (Option A) or launch Chrome using the command in the instructions (Option B).`);
                      } else {
                         throw new Error(`Network Error: Could not connect to bridge at ${url}. Check IP/Username and network connection.`);
                      }
@@ -344,9 +369,10 @@
             // Show alt option
             alternateOptionsDiv.style.display = 'block';
 
-            // Load saved Bridge IP and API User from sessionStorage
+            // Load saved Bridge IP, API User, and CORS proxy from sessionStorage
             const savedIp = sessionStorage.getItem(SESSION_STORAGE_IP_KEY);
             const savedApiUser = sessionStorage.getItem(SESSION_STORAGE_API_KEY);
+            const savedProxy = sessionStorage.getItem(SESSION_STORAGE_PROXY_KEY);
 
             if (savedIp) {
                 bridgeIpInput.value = savedIp;
@@ -356,8 +382,12 @@
                 apiUserInput.value = savedApiUser;
                 apiUser = savedApiUser; // Update state variable
             }
+            if (savedProxy) {
+                corsProxyInput.value = savedProxy;
+                corsProxyUrl = savedProxy;
+            }
 
-            // Add listeners to save IP/User on input change
+            // Add listeners to save IP/User/Proxy on input change
             bridgeIpInput.addEventListener('input', () => {
                 bridgeIp = bridgeIpInput.value.trim();
                 sessionStorage.setItem(SESSION_STORAGE_IP_KEY, bridgeIp);
@@ -367,6 +397,14 @@
                 apiUser = apiUserInput.value.trim();
                 sessionStorage.setItem(SESSION_STORAGE_API_KEY, apiUser);
             });
+
+            corsProxyInput.addEventListener('input', () => {
+                corsProxyUrl = corsProxyInput.value.trim();
+                sessionStorage.setItem(SESSION_STORAGE_PROXY_KEY, corsProxyUrl);
+                updateCorsBanner();
+            });
+
+            updateCorsBanner();
         });
 
 
@@ -456,7 +494,7 @@
 
             } catch (error) {
                 log(`Error fetching lights: ${error.message}`, 'error');
-                step1Error.textContent = `Error: ${error.message}. Please check IP, Username, network, and you launched chrome using the command in the instructions.`;
+                step1Error.textContent = `Error: ${error.message}. Please check your Bridge IP, API Username, network connection, and proxy/browser configuration.`;
                 // Clear potentially invalid state
                 apiV1BaseUrl = '';
                 apiV2BaseUrl = '';
