@@ -121,7 +121,7 @@
             <div id="debugOptions" class="mb-4 p-3 bg-purple-50 border border-purple-200 rounded-md">
                 <label for="debugRenameCheck" class="flex items-center text-sm font-medium text-purple-700">
                     <input type="checkbox" id="debugRenameCheck" class="h-4 w-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500 mr-2">
-                    <strong>Alternate Rename Option:</strong>&nbsp;&nbsp;&nbsp;Keep OLD bulb name, rename NEW bulb to "<span id="altCheckboxOldName">[Original Name]</span> (new)" instead.
+                    <strong>Alternate Rename Option:</strong>&nbsp;&nbsp;&nbsp;OLD bulb keeps name, rename NEW bulb to "<span id="altCheckboxOldName">[Original Name]</span> (new)" instead.
                     </label>
             </div>
             <div id="confirmation" class="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800 hidden">
@@ -1137,12 +1137,11 @@
                  log(` - New bulb added to V1 groups: [${groupsWithOldLight.join(', ')}]`, 'info');
                  log(` - Attempted V1 scene state copy/light list update for scenes involving the old bulb.`, 'info');
                  log(` - Attempted V2 room membership update: moved new bulb to old bulb's room if they differed, and copied geometry position.`, 'info');
-                 log('Please verify in the Hue app and other apps (especially V2 API based ones):', 'warning');
-                 log(' - Check the final names of the bulbs.', 'warning');
-                 log(' - Check automations/timers involving the old bulb now correctly include/target the new bulb.', 'warning');
-                 log(' - Check V1 Rules involving the old bulb now correctly include/target the new bulb.', 'warning');
-                 log(' - Check the startup behavior of the new bulb after a power cycle.', 'warning');
-                 log(' - Test the groups and scenes involving the original bulb to ensure the new bulb behaves correctly.', 'warning');
+                 log('----- CHECKLIST of things to verify worked -----', 'info');
+                 log(' - Check the final names of the bulbs - Old bulb should now say "(old)".', 'info');
+                 log(' - Check automations/timers involving the old bulb now correctly include/target the new bulb.', 'info');
+                 log(' - Check that the "Power On" setting is set as expected.', 'info');
+                 log(' - Test the groups and scenes involving the original bulb to ensure the new bulb behaves correctly and uses expected colors per scene.', 'info');
 
 
             } catch (error) {
