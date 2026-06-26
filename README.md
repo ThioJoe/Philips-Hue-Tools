@@ -20,7 +20,11 @@ API Keys are generated locally on your bridge. Here's how:
     - Settings > Bridges > Select your bridge > Look at the "IP-address" field.
     <p align="center"> <img width="350" src="https://github.com/user-attachments/assets/e707e05d-eb44-42cd-b20e-79d19ff7edd0" /></p>
 
-2. After finding the IP, go to this address in your browser, filling in the IP of the bridge: `https://WHATEVER-IP/debug/clip.html`
+2. After finding the IP, go to this address in your browser, filling in the IP of the bridge:
+    ```
+    https://WHATEVER-IP/debug/clip.html
+    ```
+    
     - You might get a "insecure connection" warning, just ignore that and continue
     - You should see a page like this:
   <p align="center"> <img width="350" src="https://github.com/user-attachments/assets/4884ac07-1a5c-4aa8-8e03-50d75c721a49" /> </p>
